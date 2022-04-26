@@ -1,7 +1,8 @@
 # aoc-2019
 
-Advent of Code 2019 with C11
+Advent of Code 2019 with Zig
 
-# compile
-
-Compile each main.c code with any compiler you want (at least, clang compiler works)
+# running each files
+```console
+$ zig run main.zig
+```
