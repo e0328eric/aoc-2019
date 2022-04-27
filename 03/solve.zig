@@ -234,8 +234,8 @@ fn solve2(seg1: *const SegmentArray, seg2: *const SegmentArray) i32 {
     return answer;
 }
 
-pub fn main() !void {
-    var file = try fs.cwd().openFile("./input.txt", .{});
+pub fn printAnswer() !void {
+    var file = try fs.cwd().openFile("./03/input.txt", .{});
     defer file.close();
 
     var stream = io.bufferedReader(file.reader()).reader();

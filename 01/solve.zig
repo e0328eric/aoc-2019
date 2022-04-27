@@ -21,8 +21,8 @@ fn solve2(fuel: i32) i32 {
     return output;
 }
 
-pub fn main() !void {
-    var file = try fs.cwd().openFile("./input.txt", .{});
+pub fn printAnswer() !void {
+    var file = try fs.cwd().openFile("./01/input.txt", .{});
     defer file.close();
 
     var stream = io.bufferedReader(file.reader()).reader();
