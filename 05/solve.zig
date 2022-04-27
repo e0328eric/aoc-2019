@@ -1,52 +1,39 @@
 const std = @import("std");
 const io = std.io;
 const fs = std.fs;
-const print = std.debug.print;
 const intcode = @import("../intcode.zig");
+const print = std.debug.print;
 const allocator = std.heap.page_allocator;
+const expect = std.testing.expect;
 
 fn solve1(source: []u8) !i64 {
     var machine = try intcode.Machine.machineFromString(source);
     defer machine.freeMachine();
 
-    machine.source[1] = 12;
-    machine.source[2] = 2;
-
+    var inputs = [_]i64{1};
+    try machine.inputHandler(inputs[0..]);
     try machine.runMachine();
+    var outputs = try machine.outputHandler();
+    defer allocator.free(outputs);
 
-    return machine.source[0];
+    return outputs[outputs.len - 1];
 }
 
 fn solve2(source: []u8) !i64 {
     var machine = try intcode.Machine.machineFromString(source);
     defer machine.freeMachine();
 
-    var noun: i64 = 0;
-    var verb: i64 = 0;
+    var inputs = [_]i64{5};
+    try machine.inputHandler(inputs[0..]);
+    try machine.runMachine();
+    var outputs = try machine.outputHandler();
+    defer allocator.free(outputs);
 
-    while (verb < 100) : ({
-        noun += 1;
-        if (noun >= 100) {
-            verb += 1;
-            noun = 0;
-        }
-    }) {
-        machine.resetMachine();
-        machine.source[1] = noun;
-        machine.source[2] = verb;
-
-        try machine.runMachine();
-
-        if (machine.source[0] == 19690720) {
-            return 100 * noun + verb;
-        }
-    }
-
-    return -1;
+    return outputs[outputs.len - 1];
 }
 
 pub fn printAnswer() !void {
-    var file = try fs.cwd().openFile("./02/input.txt", .{});
+    var file = try fs.cwd().openFile("./05/input.txt", .{});
     defer file.close();
 
     var file_len = try file.getEndPos();

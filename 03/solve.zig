@@ -4,16 +4,7 @@ const fs = std.fs;
 const print = std.debug.print;
 const parseInt = std.fmt.parseInt;
 const math = std.math;
-const c = std.c;
-
-// Allocator and Deallocator with C API
-fn alloc(comptime T: type, len: usize) ?[*]T {
-    return @ptrCast([*]T, @alignCast(@alignOf(T), c.malloc(@sizeOf(T) * len) orelse return null));
-}
-
-fn free(comptime T: type, ptr: ?[*]T) void {
-    c.free(ptr orelse return);
-}
+const allocator = std.heap.page_allocator;
 
 // Define Types
 const SegmentType = enum {
@@ -29,7 +20,7 @@ const Segment = struct {
 };
 
 const SegmentArray = struct {
-    inner: ?[*]Segment,
+    inner: ?[]Segment,
     len: usize,
 
     fn pathToSegments(path: *const Path) ?@This() {
@@ -37,7 +28,7 @@ const SegmentArray = struct {
 
         output.len = path.len - 1;
 
-        var ptr = alloc(Segment, output.len) orelse return null;
+        var ptr = allocator.alloc(Segment, output.len) catch return null;
         const inner = path.inner orelse return null;
         var i: usize = 0;
         while (i < output.len) : (i += 1) {
@@ -59,7 +50,7 @@ const SegmentArray = struct {
     }
 
     fn freeSegArray(seg: *@This()) void {
-        free(Segment, seg.inner);
+        allocator.free(seg.inner orelse return);
         seg.inner = null;
         seg.len = 0;
     }
@@ -71,11 +62,11 @@ const Point = struct {
 };
 
 const Path = struct {
-    inner: ?[*]Point,
+    inner: ?[]Point,
     len: usize,
 
     fn freePath(path: *@This()) void {
-        free(Point, path.inner);
+        allocator.free(path.inner orelse return);
         path.inner = null;
         path.len = 0;
     }
@@ -99,7 +90,7 @@ fn parseInput(input: []u8) !Path {
     }
 
     output.len = len + 1;
-    output.inner = alloc(Point, len + 1);
+    output.inner = try allocator.alloc(Point, len + 1);
 
     output.inner.?[0].x = 0;
     output.inner.?[0].y = 0;
@@ -157,7 +148,7 @@ fn solve1(seg1: *const SegmentArray, seg2: *const SegmentArray) i32 {
     var container: Path = undefined;
     var answer: i32 = math.maxInt(i32);
 
-    container.inner = alloc(Point, seg1.len * 2);
+    container.inner = allocator.alloc(Point, seg1.len * 2) catch return -1;
     container.len = 0;
     defer container.freePath();
 
@@ -239,8 +230,8 @@ pub fn printAnswer() !void {
     defer file.close();
 
     var stream = io.bufferedReader(file.reader()).reader();
-    var buf = alloc(u8, 2048) orelse return error.AllocFailed;
-    defer free(u8, buf);
+    var buf = try allocator.alloc(u8, 2048);
+    defer allocator.free(buf);
 
     var path1: Path = undefined;
     var path2: Path = undefined;

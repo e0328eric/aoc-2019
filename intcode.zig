@@ -2,28 +2,48 @@ const std = @import("std");
 const mem = std.mem;
 const print = std.debug.print;
 const parseInt = std.fmt.parseInt;
-const c = std.c;
-
-// Allocator and Deallocator with C API
-pub fn alloc(comptime T: type, len: usize) ?[*]T {
-    return @ptrCast([*]T, @alignCast(@alignOf(T), c.malloc(@sizeOf(T) * len) orelse return null));
-}
-
-pub fn free(comptime T: type, ptr: ?[*]T) void {
-    c.free(ptr orelse return);
-}
+const allocator = std.heap.page_allocator;
 
 const Opcode = enum(u8) {
     Add = 1,
-    Multiply,
+    Multiply = 2,
+    Input = 3,
+    Output = 4,
+    JmpIfT = 5,
+    JmpIfF = 6,
+    Less = 7,
+    Eq = 8,
     Halt = 99,
 };
 
+const ParamMode = enum(u2) {
+    Position,
+    Immediate,
+};
+
+fn parseOpcode(
+    raw_opcode: i64,
+    opcode_output: *Opcode,
+    param_output: *[2]ParamMode,
+) void {
+    var fst_mode: u8 = @intCast(u8, @mod(@divFloor(raw_opcode, 100), 10));
+    var snd_mode: u8 = @intCast(u8, @mod(@divFloor(raw_opcode, 1000), 10));
+    var opcode: u8 = @intCast(u8, @mod(raw_opcode, 100));
+
+    opcode_output.* = @intToEnum(Opcode, opcode);
+    param_output[0] = @intToEnum(ParamMode, fst_mode);
+    param_output[1] = @intToEnum(ParamMode, snd_mode);
+}
+
 pub const Machine = struct {
-    init_source: [*]i64,
-    source: [*]i64,
+    init_source: []i64,
+    source: []i64,
     len: usize,
     pos: usize,
+    inputs: [50]i64,
+    input_pos: usize,
+    outputs: [50]i64,
+    output_pos: usize,
     is_halt: bool,
 
     pub fn machineFromString(string: []u8) !@This() {
@@ -32,6 +52,10 @@ pub const Machine = struct {
             .source = undefined,
             .len = undefined,
             .pos = 0,
+            .inputs = [_]i64{0} ** 50,
+            .input_pos = 0,
+            .outputs = [_]i64{0} ** 50,
+            .output_pos = 0,
             .is_halt = false,
         };
         var source_len: usize = 1;
@@ -41,8 +65,8 @@ pub const Machine = struct {
             }
         }
 
-        output.source = alloc(i64, source_len) orelse return error.AllocFailed;
-        output.init_source = alloc(i64, source_len) orelse return error.AllocFailed;
+        output.source = try allocator.alloc(i64, source_len);
+        output.init_source = try allocator.alloc(i64, source_len);
 
         var idx: usize = 0;
         var start: usize = 0;
@@ -59,15 +83,15 @@ pub const Machine = struct {
             start = i + 1;
         }
 
-        mem.copy(i64, output.init_source[0..source_len], output.source[0..source_len]);
+        mem.copy(i64, output.init_source, output.source);
         output.len = source_len;
 
         return output;
     }
 
     pub fn freeMachine(machine: *@This()) void {
-        free(i64, machine.init_source);
-        free(i64, machine.source);
+        allocator.free(machine.init_source);
+        allocator.free(machine.source);
     }
 
     pub fn dumpMachine(machine: *const @This()) void {
@@ -86,44 +110,114 @@ pub const Machine = struct {
     }
 
     pub fn resetMachine(machine: *@This()) void {
-        mem.copy(i64, machine.source[0..machine.len], machine.init_source[0..machine.len]);
+        mem.copy(i64, machine.source, machine.init_source);
         machine.pos = 0;
         machine.is_halt = false;
     }
 
-    fn runMachineOnce(machine: *@This()) bool {
-        var store_pos: usize = undefined;
-        var pos1: usize = undefined;
-        var pos2: usize = undefined;
+    pub fn inputHandler(machine: *@This(), input: []i64) !void {
+        if (input.len + machine.input_pos >= 50) {
+            return error.InputOverflow;
+        }
+        mem.copy(i64, machine.inputs[machine.input_pos..], input);
+        machine.input_pos += input.len;
+    }
 
-        switch (@intToEnum(Opcode, machine.source[machine.pos])) {
+    pub fn outputHandler(machine: *@This()) ![]i64 {
+        var output = try allocator.alloc(i64, machine.output_pos);
+        mem.copy(i64, output, machine.outputs[0..machine.output_pos]);
+        machine.output_pos = 0;
+        return output;
+    }
+
+    fn takeValue(machine: *const @This(), pos: usize, mode: ParamMode) i64 {
+        return switch (mode) {
+            .Position => machine.source[@intCast(usize, machine.source[machine.pos + pos])],
+            .Immediate => machine.source[machine.pos + pos],
+        };
+    }
+
+    fn runMachineOnce(machine: *@This()) !void {
+        var store_pos: usize = undefined;
+        var val1: i64 = undefined;
+        var val2: i64 = undefined;
+        var opcode: Opcode = undefined;
+        var param_modes: [2]ParamMode = undefined;
+
+        parseOpcode(machine.source[machine.pos], &opcode, &param_modes);
+
+        switch (opcode) {
             .Add => {
                 store_pos = @intCast(usize, machine.source[machine.pos + 3]);
-                pos1 = @intCast(usize, machine.source[machine.pos + 1]);
-                pos2 = @intCast(usize, machine.source[machine.pos + 2]);
-                machine.source[store_pos] = machine.source[pos1] + machine.source[pos2];
+                val1 = machine.takeValue(1, param_modes[0]);
+                val2 = machine.takeValue(2, param_modes[1]);
+                machine.source[store_pos] = val1 + val2;
                 machine.pos += 4;
             },
             .Multiply => {
                 store_pos = @intCast(usize, machine.source[machine.pos + 3]);
-                pos1 = @intCast(usize, machine.source[machine.pos + 1]);
-                pos2 = @intCast(usize, machine.source[machine.pos + 2]);
-                machine.source[store_pos] = machine.source[pos1] * machine.source[pos2];
+                val1 = machine.takeValue(1, param_modes[0]);
+                val2 = machine.takeValue(2, param_modes[1]);
+                machine.source[store_pos] = val1 * val2;
+                machine.pos += 4;
+            },
+            .Input => {
+                store_pos = @intCast(usize, machine.source[machine.pos + 1]);
+                if (machine.input_pos == 0) {
+                    return error.InputUnderflow;
+                }
+                machine.source[store_pos] = machine.inputs[machine.input_pos - 1];
+                machine.input_pos -= 1;
+                machine.pos += 2;
+            },
+            .Output => {
+                val1 = machine.takeValue(1, param_modes[0]);
+                if (machine.output_pos >= 50) {
+                    return error.OutputOverflow;
+                }
+                machine.outputs[machine.output_pos] = val1;
+                machine.output_pos += 1;
+                machine.pos += 2;
+            },
+            .JmpIfT => {
+                val1 = machine.takeValue(1, param_modes[0]);
+                val2 = machine.takeValue(2, param_modes[1]);
+                if (val1 != 0) {
+                    machine.pos = @intCast(usize, val2);
+                } else {
+                    machine.pos += 3;
+                }
+            },
+            .JmpIfF => {
+                val1 = machine.takeValue(1, param_modes[0]);
+                val2 = machine.takeValue(2, param_modes[1]);
+                if (val1 == 0) {
+                    machine.pos = @intCast(usize, val2);
+                } else {
+                    machine.pos += 3;
+                }
+            },
+            .Less => {
+                store_pos = @intCast(usize, machine.source[machine.pos + 3]);
+                val1 = machine.takeValue(1, param_modes[0]);
+                val2 = machine.takeValue(2, param_modes[1]);
+                machine.source[store_pos] = if (val1 < val2) 1 else 0;
+                machine.pos += 4;
+            },
+            .Eq => {
+                store_pos = @intCast(usize, machine.source[machine.pos + 3]);
+                val1 = machine.takeValue(1, param_modes[0]);
+                val2 = machine.takeValue(2, param_modes[1]);
+                machine.source[store_pos] = if (val1 == val2) 1 else 0;
                 machine.pos += 4;
             },
             .Halt => machine.is_halt = true,
         }
-
-        return true;
     }
 
-    pub fn runMachine(machine: *@This()) bool {
+    pub fn runMachine(machine: *@This()) !void {
         while (!machine.is_halt) {
-            if (!machine.runMachineOnce()) {
-                return false;
-            }
+            try machine.runMachineOnce();
         }
-
-        return true;
     }
 };
