@@ -35,26 +35,29 @@ fn parseOpcode(
     param_output[1] = @intToEnum(ParamMode, snd_mode);
 }
 
+const io_capacity = 100;
 pub const Machine = struct {
     init_source: []i64,
     source: []i64,
     len: usize,
     pos: usize,
-    inputs: [50]i64,
+    inputs: [io_capacity]i64,
+    input_len: usize,
     input_pos: usize,
-    outputs: [50]i64,
+    outputs: [io_capacity]i64,
     output_pos: usize,
     is_halt: bool,
 
-    pub fn machineFromString(string: []u8) !@This() {
+    pub fn machineFromString(string: []const u8) !@This() {
         var output: @This() = .{
             .init_source = undefined,
             .source = undefined,
             .len = undefined,
             .pos = 0,
-            .inputs = [_]i64{0} ** 50,
+            .inputs = [_]i64{0} ** io_capacity,
+            .input_len = 0,
             .input_pos = 0,
-            .outputs = [_]i64{0} ** 50,
+            .outputs = [_]i64{0} ** io_capacity,
             .output_pos = 0,
             .is_halt = false,
         };
@@ -112,21 +115,41 @@ pub const Machine = struct {
     pub fn resetMachine(machine: *@This()) void {
         mem.copy(i64, machine.source, machine.init_source);
         machine.pos = 0;
+        mem.set(i64, machine.inputs[0..], 0);
+        mem.set(i64, machine.outputs[0..], 0);
+        machine.input_len = 0;
+        machine.input_pos = 0;
+        machine.output_pos = 0;
         machine.is_halt = false;
     }
 
+    pub fn resetMachineIO(machine: *@This()) void {
+        mem.set(i64, machine.inputs[0..], 0);
+        mem.set(i64, machine.outputs[0..], 0);
+        machine.input_len = 0;
+        machine.input_pos = 0;
+        machine.output_pos = 0;
+    }
+
     pub fn inputHandler(machine: *@This(), input: []i64) !void {
-        if (input.len + machine.input_pos >= 50) {
+        if (input.len + machine.input_len >= io_capacity) {
             return error.InputOverflow;
         }
-        mem.copy(i64, machine.inputs[machine.input_pos..], input);
-        machine.input_pos += input.len;
+        mem.copy(i64, machine.inputs[machine.input_len..], input);
+        machine.input_len += input.len;
+    }
+
+    pub fn inputSingle(machine: *@This(), input: i64) !void {
+        if (1 + machine.input_len >= io_capacity) {
+            return error.InputOverflow;
+        }
+        machine.inputs[machine.input_len] = input;
+        machine.input_len += 1;
     }
 
     pub fn outputHandler(machine: *@This()) ![]i64 {
         var output = try allocator.alloc(i64, machine.output_pos);
         mem.copy(i64, output, machine.outputs[0..machine.output_pos]);
-        machine.output_pos = 0;
         return output;
     }
 
@@ -163,16 +186,16 @@ pub const Machine = struct {
             },
             .Input => {
                 store_pos = @intCast(usize, machine.source[machine.pos + 1]);
-                if (machine.input_pos == 0) {
-                    return error.InputUnderflow;
+                if (machine.input_pos >= machine.input_len) {
+                    return error.CannotReadInput;
                 }
-                machine.source[store_pos] = machine.inputs[machine.input_pos - 1];
-                machine.input_pos -= 1;
+                machine.source[store_pos] = machine.inputs[machine.input_pos];
+                machine.input_pos += 1;
                 machine.pos += 2;
             },
             .Output => {
                 val1 = machine.takeValue(1, param_modes[0]);
-                if (machine.output_pos >= 50) {
+                if (machine.output_pos >= io_capacity) {
                     return error.OutputOverflow;
                 }
                 machine.outputs[machine.output_pos] = val1;

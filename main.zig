@@ -4,6 +4,7 @@ const day2 = @import("02/solve.zig");
 const day3 = @import("03/solve.zig");
 const day4 = @import("04/solve.zig");
 const day5 = @import("05/solve.zig");
+const day6 = @import("06/solve.zig");
 const print = std.debug.print;
 
 pub fn main() !void {
@@ -17,4 +18,6 @@ pub fn main() !void {
     try day4.printAnswer();
     print("\n===== Day 5 =====\n\n", .{});
     try day5.printAnswer();
+    print("\n===== Day 6 =====\n\n", .{});
+    try day6.printAnswer();
 }
