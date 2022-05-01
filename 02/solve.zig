@@ -3,21 +3,22 @@ const io = std.io;
 const fs = std.fs;
 const print = std.debug.print;
 const intcode = @import("../intcode.zig");
-const allocator = std.heap.page_allocator;
+const allocator = std.heap.raw_c_allocator;
 
-fn solve1(source: []u8) !i64 {
+fn solve1(source: []const u8) !i64 {
     var machine = try intcode.Machine.machineFromString(source);
     defer machine.freeMachine();
 
     machine.source[1] = 12;
     machine.source[2] = 2;
 
-    try machine.runMachine();
+    try machine.runMachine(intcode.ExitMode.UntilHalt);
 
     return machine.source[0];
 }
 
-fn solve2(source: []u8) !i64 {
+fn solve2(source: []const u8) !i64 {
+    const expect_value: i64 = 19690720;
     var machine = try intcode.Machine.machineFromString(source);
     defer machine.freeMachine();
 
@@ -35,9 +36,9 @@ fn solve2(source: []u8) !i64 {
         machine.source[1] = noun;
         machine.source[2] = verb;
 
-        try machine.runMachine();
+        try machine.runMachine(intcode.ExitMode.UntilHalt);
 
-        if (machine.source[0] == 19690720) {
+        if (machine.source[0] == expect_value) {
             return 100 * noun + verb;
         }
     }
@@ -46,14 +47,8 @@ fn solve2(source: []u8) !i64 {
 }
 
 pub fn printAnswer() !void {
-    var file = try fs.cwd().openFile("./02/input.txt", .{});
-    defer file.close();
+    const source = @embedFile("./input.txt");
 
-    var file_len = try file.getEndPos();
-    var buffer = try allocator.alloc(u8, file_len + 1);
-    defer allocator.free(buffer);
-    _ = try file.read(buffer[0..file_len]);
-
-    print("Answer1: {}\n", .{try solve1(buffer[0..file_len])});
-    print("Answer2: {}\n", .{try solve2(buffer[0..file_len])});
+    print("Answer1: {}\n", .{try solve1(source[0..])});
+    print("Answer2: {}\n", .{try solve2(source[0..])});
 }

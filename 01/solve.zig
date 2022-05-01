@@ -22,16 +22,13 @@ fn solve2(fuel: i32) i32 {
 }
 
 pub fn printAnswer() !void {
-    var file = try fs.cwd().openFile("./01/input.txt", .{});
-    defer file.close();
-
-    var stream = io.bufferedReader(file.reader()).reader();
-    var buf: [100:0]u8 = undefined;
+    const source = @embedFile("./input.txt");
+    var iter = std.mem.tokenize(u8, source, "\n");
 
     var parsed: i32 = undefined;
     var answer1: i32 = 0;
     var answer2: i32 = 0;
-    while (try stream.readUntilDelimiterOrEof(&buf, '\n')) |line| {
+    while (iter.next()) |line| {
         parsed = try parseInt(i32, line, 10);
         answer1 += solve1(parsed);
         answer2 += solve2(parsed);

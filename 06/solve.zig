@@ -4,7 +4,7 @@ const fs = std.fs;
 const mem = std.mem;
 const print = std.debug.print;
 const expect = std.testing.expect;
-const allocator = std.heap.page_allocator;
+const allocator = std.heap.raw_c_allocator;
 
 const Node = struct {
     name: []const u8,
@@ -163,14 +163,7 @@ fn solve2(source: []const u8) !i32 {
 }
 
 pub fn printAnswer() !void {
-    var file = try fs.cwd().openFile("./06/input.txt", .{});
-    defer file.close();
-
-    var file_size = try file.getEndPos();
-    var source = try allocator.alloc(u8, @intCast(usize, file_size));
-    defer allocator.free(source);
-
-    _ = try file.read(source);
+    const source = @embedFile("./input.txt");
 
     print("Answer1: {}\n", .{try solve1(source)});
     print("Answer2: {}\n", .{try solve2(source)});

@@ -4,7 +4,7 @@ const fs = std.fs;
 const print = std.debug.print;
 const parseInt = std.fmt.parseInt;
 const math = std.math;
-const allocator = std.heap.page_allocator;
+const allocator = std.heap.raw_c_allocator;
 
 // Define Types
 const SegmentType = enum {
@@ -79,7 +79,7 @@ const Direction = enum(u8) {
     Right = 'R',
 };
 
-fn parseInput(input: []u8) !Path {
+fn parseInput(input: []const u8) !Path {
     var output: Path = undefined;
 
     var len: usize = 1;
@@ -226,22 +226,18 @@ fn solve2(seg1: *const SegmentArray, seg2: *const SegmentArray) i32 {
 }
 
 pub fn printAnswer() !void {
-    var file = try fs.cwd().openFile("./03/input.txt", .{});
-    defer file.close();
-
-    var stream = io.bufferedReader(file.reader()).reader();
-    var buf = try allocator.alloc(u8, 2048);
-    defer allocator.free(buf);
+    const source = @embedFile("./input.txt");
+    var iter = std.mem.tokenize(u8, source, "\n");
 
     var path1: Path = undefined;
     var path2: Path = undefined;
     defer path1.freePath();
     defer path2.freePath();
 
-    if (try stream.readUntilDelimiterOrEof(buf[0..2047], '\n')) |line| {
+    if (iter.next()) |line| {
         path1 = try parseInput(line);
     }
-    if (try stream.readUntilDelimiterOrEof(buf[0..2047], '\n')) |line| {
+    if (iter.next()) |line| {
         path2 = try parseInput(line);
     }
 
