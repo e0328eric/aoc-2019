@@ -89,22 +89,22 @@ fn findCommon(
     you_len: usize,
     santa_len: usize,
 ) i32 {
-    var i: i32 = @intCast(i32, you_len);
-    var j: i32 = @intCast(i32, santa_len);
+    var you_location: i32 = undefined;
+    var santa_location: i32 = undefined;
 
-    while (j > 0) : ({
-        i -= 1;
-        if (i == 0) {
-            j -= 1;
-            i = @intCast(i32, you_len);
-        }
-    }) {
-        if (mem.eql(u8, you_orbits[@intCast(usize, i - 1)], santa_orbits[@intCast(usize, j - 1)])) {
-            break;
+    for (you_orbits) |you, i| {
+        if (i >= you_len) break;
+        for (santa_orbits) |santa, j| {
+            if (j >= santa_len) break;
+            if (mem.eql(u8, you, santa)) {
+                you_location = @intCast(i32, i);
+                santa_location = @intCast(i32, j);
+                break;
+            }
         }
     }
 
-    return @intCast(i32, you_len + santa_len) - i - j - 2;
+    return @intCast(i32, you_len + santa_len) - you_location - santa_location - 4;
 }
 
 fn solve1(source: []const u8) !i32 {
@@ -152,14 +152,14 @@ fn solve2(source: []const u8) !i32 {
     var santa_orbits = try allocator.alloc([]const u8, 1024);
     defer allocator.free(santa_orbits);
 
-    var you_pos: usize = 0;
-    var santa_pos: usize = 0;
+    var you_len: usize = 0;
+    var santa_len: usize = 0;
     var you_node = orbit.container[orbit.finder.get("YOU").?].?;
     var santa_node = orbit.container[orbit.finder.get("SAN").?].?;
-    try collectOrbitors(&you_node, you_orbits, &you_pos);
-    try collectOrbitors(&santa_node, santa_orbits, &santa_pos);
+    try collectOrbitors(&you_node, you_orbits, &you_len);
+    try collectOrbitors(&santa_node, santa_orbits, &santa_len);
 
-    return findCommon(you_orbits, santa_orbits, you_pos, santa_pos);
+    return findCommon(you_orbits, santa_orbits, you_len, santa_len);
 }
 
 pub fn printAnswer() !void {
