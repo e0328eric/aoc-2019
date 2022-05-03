@@ -13,12 +13,14 @@ const Opcode = enum(u8) {
     JmpIfF = 6,
     Less = 7,
     Eq = 8,
+    Adjust = 9,
     Halt = 99,
 };
 
-const ParamMode = enum(u2) {
+const ParamMode = enum(u3) {
     Position,
     Immediate,
+    Relative,
 };
 
 pub const ExitMode = enum(u2) {
@@ -29,27 +31,31 @@ pub const ExitMode = enum(u2) {
 fn parseOpcode(
     raw_opcode: i64,
     opcode_output: *Opcode,
-    param_output: *[2]ParamMode,
+    param_output: *[3]ParamMode,
 ) void {
     var fst_mode: u8 = @intCast(u8, @mod(@divFloor(raw_opcode, 100), 10));
     var snd_mode: u8 = @intCast(u8, @mod(@divFloor(raw_opcode, 1000), 10));
+    var thr_mode: u8 = @intCast(u8, @mod(@divFloor(raw_opcode, 10000), 10));
     var opcode: u8 = @intCast(u8, @mod(raw_opcode, 100));
 
     opcode_output.* = @intToEnum(Opcode, opcode);
     param_output[0] = @intToEnum(ParamMode, fst_mode);
     param_output[1] = @intToEnum(ParamMode, snd_mode);
+    param_output[2] = @intToEnum(ParamMode, thr_mode);
 }
 
-const IO_CAPACITY = 100;
+const io_capacity = 1024;
+const memory_capacity = 2048;
 pub const Machine = struct {
     init_source: []i64,
     source: []i64,
     len: usize,
     pos: usize,
-    inputs: [IO_CAPACITY]i64,
+    relative_base: i64,
+    inputs: []i64,
     input_len: usize,
     input_pos: usize,
-    outputs: [IO_CAPACITY]i64,
+    outputs: []i64,
     output_pos: usize,
     is_halt: bool,
 
@@ -59,10 +65,11 @@ pub const Machine = struct {
             .source = undefined,
             .len = undefined,
             .pos = 0,
-            .inputs = [_]i64{0} ** IO_CAPACITY,
+            .relative_base = 0,
+            .inputs = undefined,
             .input_len = 0,
             .input_pos = 0,
-            .outputs = [_]i64{0} ** IO_CAPACITY,
+            .outputs = undefined,
             .output_pos = 0,
             .is_halt = false,
         };
@@ -73,8 +80,14 @@ pub const Machine = struct {
             }
         }
 
-        output.source = try allocator.alloc(i64, source_len);
-        output.init_source = try allocator.alloc(i64, source_len);
+        output.source = try allocator.alloc(i64, memory_capacity);
+        output.init_source = try allocator.alloc(i64, memory_capacity);
+        output.inputs = try allocator.alloc(i64, io_capacity);
+        output.outputs = try allocator.alloc(i64, io_capacity);
+
+        mem.set(i64, output.source, 0);
+        mem.set(i64, output.inputs, 0);
+        mem.set(i64, output.outputs, 0);
 
         var idx: usize = 0;
         var start: usize = 0;
@@ -100,6 +113,8 @@ pub const Machine = struct {
     pub fn freeMachine(machine: *@This()) void {
         allocator.free(machine.init_source);
         allocator.free(machine.source);
+        allocator.free(machine.inputs);
+        allocator.free(machine.outputs);
     }
 
     pub fn dumpMachine(machine: *const @This()) void {
@@ -121,7 +136,7 @@ pub const Machine = struct {
         while (i < machine.input_len) : (i += 1) {
             print("{d} ", .{machine.inputs[i]});
         }
-        print("] (len: {}, pos: {})\n", .{ machine.input_len, machine.input_pos });
+        print("] (len: {}, pos: {}, relative: {})\n", .{ machine.input_len, machine.input_pos, machine.relative_base });
 
         i = 0;
         print("Output: [ ", .{});
@@ -144,13 +159,13 @@ pub const Machine = struct {
 
     pub fn inputHandler(machine: *@This(), comptime InputType: type, input: InputType) !void {
         if (InputType == i64) {
-            if (1 + machine.input_len >= IO_CAPACITY) {
+            if (1 + machine.input_len >= io_capacity) {
                 return error.InputOverflow;
             }
             machine.inputs[machine.input_len] = input;
             machine.input_len += 1;
         } else if (InputType == []i64) {
-            if (input.len + machine.input_len >= IO_CAPACITY) {
+            if (input.len + machine.input_len >= io_capacity) {
                 return error.InputOverflow;
             }
             mem.copy(i64, machine.inputs[machine.input_len..], input);
@@ -168,6 +183,15 @@ pub const Machine = struct {
         return switch (mode) {
             .Position => machine.source[@intCast(usize, machine.source[machine.pos + pos])],
             .Immediate => machine.source[machine.pos + pos],
+            .Relative => machine.source[@intCast(usize, machine.source[machine.pos + pos] + machine.relative_base)],
+        };
+    }
+
+    fn takeStoreLocation(machine: *const @This(), pos: usize, mode: ParamMode) !usize {
+        return switch (mode) {
+            .Position => @intCast(usize, machine.source[machine.pos + pos]),
+            .Relative => @intCast(usize, machine.source[machine.pos + pos] + machine.relative_base),
+            else => return error.RelativeOnInput,
         };
     }
 
@@ -176,27 +200,27 @@ pub const Machine = struct {
         var val1: i64 = undefined;
         var val2: i64 = undefined;
         var opcode: Opcode = undefined;
-        var param_modes: [2]ParamMode = undefined;
+        var param_modes: [3]ParamMode = undefined;
 
         parseOpcode(machine.source[machine.pos], &opcode, &param_modes);
 
         switch (opcode) {
             .Add => {
-                store_pos = @intCast(usize, machine.source[machine.pos + 3]);
+                store_pos = try machine.takeStoreLocation(3, param_modes[2]);
                 val1 = machine.takeValue(1, param_modes[0]);
                 val2 = machine.takeValue(2, param_modes[1]);
                 machine.source[store_pos] = val1 + val2;
                 machine.pos += 4;
             },
             .Multiply => {
-                store_pos = @intCast(usize, machine.source[machine.pos + 3]);
+                store_pos = try machine.takeStoreLocation(3, param_modes[2]);
                 val1 = machine.takeValue(1, param_modes[0]);
                 val2 = machine.takeValue(2, param_modes[1]);
                 machine.source[store_pos] = val1 * val2;
                 machine.pos += 4;
             },
             .Input => {
-                store_pos = @intCast(usize, machine.source[machine.pos + 1]);
+                store_pos = try machine.takeStoreLocation(1, param_modes[0]);
                 machine.source[store_pos] = machine.inputs[machine.input_pos];
                 if (machine.input_pos < machine.input_len) {
                     machine.input_pos += 1;
@@ -205,7 +229,7 @@ pub const Machine = struct {
             },
             .Output => {
                 val1 = machine.takeValue(1, param_modes[0]);
-                if (machine.output_pos >= IO_CAPACITY) {
+                if (machine.output_pos >= io_capacity) {
                     return error.OutputOverflow;
                 }
                 machine.outputs[machine.output_pos] = val1;
@@ -234,18 +258,23 @@ pub const Machine = struct {
                 }
             },
             .Less => {
-                store_pos = @intCast(usize, machine.source[machine.pos + 3]);
+                store_pos = try machine.takeStoreLocation(3, param_modes[2]);
                 val1 = machine.takeValue(1, param_modes[0]);
                 val2 = machine.takeValue(2, param_modes[1]);
                 machine.source[store_pos] = if (val1 < val2) 1 else 0;
                 machine.pos += 4;
             },
             .Eq => {
-                store_pos = @intCast(usize, machine.source[machine.pos + 3]);
+                store_pos = try machine.takeStoreLocation(3, param_modes[2]);
                 val1 = machine.takeValue(1, param_modes[0]);
                 val2 = machine.takeValue(2, param_modes[1]);
                 machine.source[store_pos] = if (val1 == val2) 1 else 0;
                 machine.pos += 4;
+            },
+            .Adjust => {
+                val1 = machine.takeValue(1, param_modes[0]);
+                machine.relative_base += val1;
+                machine.pos += 2;
             },
             .Halt => {
                 machine.is_halt = true;
