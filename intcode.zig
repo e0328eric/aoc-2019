@@ -183,7 +183,9 @@ pub const Machine = struct {
         return switch (mode) {
             .Position => machine.source[@intCast(usize, machine.source[machine.pos + pos])],
             .Immediate => machine.source[machine.pos + pos],
-            .Relative => machine.source[@intCast(usize, machine.source[machine.pos + pos] + machine.relative_base)],
+            .Relative => machine.source[
+                @intCast(usize, machine.source[machine.pos + pos] + machine.relative_base)
+            ],
         };
     }
 
